@@ -54,7 +54,7 @@ class Iblock implements Controllable, Errorable
 
 		$filter = [
 			"ID" => $this->params["IBLOCK_ID"] ? $this->params["IBLOCK_ID"] : "",
-			"CODE" => $this->params["IBLOCK_CODE"] ? $this->params["IBLOCK_CODE"] : "",
+			"CODE" => $this->params["IBLOCK_CODE"] ?? "",
 			"CHECK_PERMISSIONS" => "N",
 		];
 		$queryObject = \CIBlock::getList([], $filter);
@@ -209,7 +209,7 @@ class Iblock implements Controllable, Errorable
 
 	private function getOrder()
 	{
-		$order = ["ID" => "ASC"];
+		$order = [];
 		if (is_array($this->params["IBLOCK_ORDER"]))
 		{
 			$fieldList = ["ID", "IBLOCK_TYPE", "NAME", "ACTIVE", "CODE", "SORT", "ELEMENT_CNT", "TIMESTAMP_X"];
@@ -222,6 +222,10 @@ class Iblock implements Controllable, Errorable
 				}
 				$order[$fieldId] = $orderParam;
 			}
+		}
+		if (!isset($order['ID']))
+		{
+			$order['ID'] = 'DESC';
 		}
 
 		return $order;

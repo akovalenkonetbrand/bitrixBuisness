@@ -395,7 +395,7 @@ class CAllCatalogDocs
 		Catalog\StoreDocumentElementTable::deleteByDocument($id);
 		Catalog\StoreDocumentBarcodeTable::deleteByDocument($id);
 
-		$contractorsProvider = Contractor\Provider\Manager::getActiveProvider();
+		$contractorsProvider = Contractor\Provider\Manager::getActiveProvider(Contractor\Provider\Manager::PROVIDER_STORE_DOCUMENT);
 		if ($contractorsProvider)
 		{
 			$contractorsProvider::onAfterDocumentDelete($id);
@@ -677,7 +677,7 @@ class CAllCatalogDocs
 		global $APPLICATION;
 
 		$productID = (int)$productID;
-		if ($productID > 0)
+		if ($productID > 0 && \Bitrix\Catalog\Config\State::isUsedInventoryManagement())
 		{
 			$iterator = Catalog\StoreDocumentElementTable::getList([
 				'select' => [

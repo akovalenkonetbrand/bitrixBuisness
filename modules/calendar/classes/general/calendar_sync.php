@@ -465,7 +465,7 @@ class CCalendarSync
 				$arNewFields['DATE_TO'] = CCalendar::Date(CCalendar::Timestamp($arNewFields['DATE_TO']) - CCalendar::GetDayLen(), false);
 			}
 
-			if (isset($arFields['PROPERTY_REMIND_SETTINGS']) && !empty($arFields['PROPERTY_REMIND_SETTINGS']))
+			if (!empty($arFields['PROPERTY_REMIND_SETTINGS']))
 			{
 				if (is_array($arFields['PROPERTY_REMIND_SETTINGS']))
 				{
@@ -574,17 +574,15 @@ class CCalendarSync
 				$arNewFields['ATTENDEES_CODES'] = $arFields['ATTENDEES_CODES'];
 			}
 
-			$eventId = CCalendar::SaveEvent(
-				[
-					'arFields' => $arNewFields,
-					'userId' => $userId,
-					'bAffectToDav' => false, // Used to prevent synchro with calDav again
-					'bSilentAccessMeeting' => true,
-					'autoDetectSection' => false,
-					'sendInvitations' => ($params['sendInvitations'] ?? null) !== false,
-					'syncCaldav' => $params['caldav'] ?? null,
-				]
-			);
+			$eventId = CCalendar::SaveEvent([
+				'arFields' => $arNewFields,
+				'userId' => $userId,
+				'bAffectToDav' => false, // Used to prevent synchro with calDav again
+				'bSilentAccessMeeting' => true,
+				'autoDetectSection' => false,
+				'sendInvitations' => ($params['sendInvitations'] ?? null) !== false,
+				'syncCaldav' => $params['caldav'] ?? null,
+			]);
 
 			if ($eventId)
 			{
@@ -593,7 +591,8 @@ class CCalendarSync
 				// But here we're trying to find original event and
 				// if it was in DB - we delete it to avoid duplication
 				if (
-					$currentEvent && $currentEvent['ID']
+					$currentEvent
+					&& $currentEvent['ID']
 					&& (int)$sectionId !== (int)$currentEvent['SECTION_ID']
 					&& !$currentEvent['RECURRENCE_ID']
 					&& $arNewFields['OWNER_ID'] === $currentEvent['OWNER_ID']
@@ -623,7 +622,8 @@ class CCalendarSync
 						'status' => $status,
 						'personalNotification' => false,
 						'hostNotification' => false,
-						'affectRecRelatedEvents' => false
+						'affectRecRelatedEvents' => false,
+						'updateDescription' => false,
 					]);
 				}
 			}
@@ -1098,8 +1098,9 @@ class CCalendarSync
 					'DESCRIPTION' => $value["DESCRIPTION"] ?? null,
 					'COLOR' => $value["COLOR"] ?? null,
 					'EXPORT' => ['ALLOW' => false],
-					"CREATED_BY" => $entityType === 'user' ? $entityId : 0,
+					'CREATED_BY' => $entityType === 'user' ? $entityId : 0,
 					'ACCESS' => [],
+					'EXTERNAL_TYPE' => $connectionType,
 					$xmlIdField => $key,
 					$xmlIdModLabel => $value["MODIFICATION_LABEL"] ?? null
 				];
@@ -1112,7 +1113,7 @@ class CCalendarSync
 				{
 					$arFields["CREATED_BY"] = $entityId;
 				}
-				if ($connectionType === 'exchange')
+				if ($connectionType === Bitrix\Calendar\Sync\Caldav\Helper::EXCHANGE_TYPE)
 				{
 					$arFields["IS_EXCHANGE"] = 1;
 				}
@@ -2110,14 +2111,12 @@ class CCalendarSync
 				}
 				else if($googleHelper->isGoogleConnection($connection['ACCOUNT_TYPE']))
 				{
-					$googleAccountInfo = self::GetGoogleAccountInfo($bGoogleApi, $userId, $type);
 					$connections['google'] = [
 						'type' => 'google',
 						'id' => $connection['ID'],
 						'active' => true,
 						'connected' => true,
-						'userName' => $connection['SERVER_USERNAME']
-							?? $googleAccountInfo['googleCalendarPrimaryId'] ?? null,
+						'userName' => $connection['NAME'] ?? null,
 						'connectionName' => $connection['NAME'],
 						'status' => self::isConnectionSuccess($connection['LAST_RESULT']),
 						'syncOffset' => time() - $calculateTimestamp($connection['SYNCHRONIZED']),

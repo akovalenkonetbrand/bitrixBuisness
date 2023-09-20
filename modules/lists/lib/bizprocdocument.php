@@ -412,7 +412,7 @@ class BizprocDocument extends CIBlockDocument
 
 	protected static function setArray(array $result, $value)
 	{
-		if (!is_array($result[$value]))
+		if (!isset($result[$value]) || !is_array($result[$value]))
 		{
 			$result[$value] = array();
 		}
@@ -884,7 +884,7 @@ class BizprocDocument extends CIBlockDocument
 			list($fieldsTemporary["TYPE"], $fieldsTemporary["USER_TYPE"]) = explode(":", $fields["type"], 2);
 			if($fields["type"] == "E:EList")
 			{
-				$fieldsTemporary["LINK_IBLOCK_ID"] = $fields["options"];
+				$fieldsTemporary["LINK_IBLOCK_ID"] = $fields["options"] ?? null;
 			}
 			elseif($fields["type"] == "E:ECrm")
 			{
@@ -1098,7 +1098,7 @@ class BizprocDocument extends CIBlockDocument
 				list($fieldData["TYPE"], $fieldData["USER_TYPE"]) = explode(":", $fields["type"], 2);
 				if($fields["type"] == "E:EList")
 				{
-					$fieldData["LINK_IBLOCK_ID"] = $fields["options"];
+					$fieldData["LINK_IBLOCK_ID"] = $fields["options"] ?? null;
 				}
 				elseif($fields["type"] == "E:ECrm")
 				{
@@ -1427,11 +1427,11 @@ class BizprocDocument extends CIBlockDocument
 			throw new Exception($iblockElement->LAST_ERROR);
 		}
 
-		if ($arFields['BP_PUBLISHED'] === 'Y')
+		if (isset($arFields['BP_PUBLISHED']) && $arFields['BP_PUBLISHED'] === 'Y')
 		{
 			self::publishDocument($documentId);
 		}
-		elseif ($arFields['BP_PUBLISHED'] === 'N')
+		elseif (isset($arFields['BP_PUBLISHED']) &&$arFields['BP_PUBLISHED'] === 'N')
 		{
 			self::unpublishDocument($documentId);
 		}
@@ -1444,7 +1444,7 @@ class BizprocDocument extends CIBlockDocument
 
 	public static function onTaskChange($documentId, $taskId, $taskData, $status)
 	{
-		CListsLiveFeed::setMessageLiveFeed($taskData['USERS'], $documentId, $taskData['WORKFLOW_ID'], false);
+		CListsLiveFeed::setMessageLiveFeed($taskData['USERS'] ?? null, $documentId, $taskData['WORKFLOW_ID'], false);
 		if ($status == CBPTaskChangedStatus::Delegate)
 		{
 			$runtime = CBPRuntime::getRuntime();

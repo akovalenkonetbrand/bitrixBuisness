@@ -151,13 +151,15 @@ class AddressType extends BaseType
 
 	public static function getDbColumnType(): string
 	{
-		return 'text';
+		$connection = \Bitrix\Main\Application::getConnection();
+		$helper = $connection->getSqlHelper();
+		return $helper->getColumnTypeByField(new \Bitrix\Main\ORM\Fields\TextField('x'));
 	}
 
 	public static function prepareSettings(array $userField): array
 	{
 		return [
-			'SHOW_MAP' => ($userField['SETTINGS']['SHOW_MAP'] === 'N' ? 'N' : 'Y')
+			'SHOW_MAP' => ($userField['SETTINGS']['SHOW_MAP'] === 'N' ? 'N' : 'Y'),
 		];
 	}
 
@@ -178,7 +180,7 @@ class AddressType extends BaseType
 			}
 		}
 
-		$fieldName = $userField['FIELD_NAME'];
+		$fieldName = ($userField['FIELD_NAME'] ?? null);
 		unset($_POST[$fieldName . '_manual_edit']);
 
 		return $result;
@@ -203,7 +205,7 @@ class AddressType extends BaseType
 		{
 			// if the value hasn't been set manually (e.g. from bizproc), then we have to remove the
 			// address' id because otherwise we'll end up with multiple UF values pointing to a single address
-			$fieldName = $userField['FIELD_NAME'];
+			$fieldName = ($userField['FIELD_NAME'] ?? null);
 			$isManualAddressEdit = $_POST[$fieldName . '_manual_edit'] ?? null;
 			if (!$isManualAddressEdit)
 			{
@@ -257,6 +259,10 @@ class AddressType extends BaseType
 		{
 			$value = self::formatAddressToString($address);
 		}
+		else
+		{
+			$value = self::getTextAddress($address);
+		}
 
 		self::clearManualEditFlag($userField);
 
@@ -265,8 +271,8 @@ class AddressType extends BaseType
 
 	private static function clearManualEditFlag(array $userField): void
 	{
-		$fieldName = $userField['FIELD_NAME'];
-		if ($userField['MULTIPLE'] !== 'Y')
+		$fieldName = ($userField['FIELD_NAME'] ?? null);
+		if (($userField['MULTIPLE'] ?? null) !== 'Y')
 		{
 			unset($_POST[$fieldName . '_manual_edit']);
 		}
@@ -297,23 +303,65 @@ class AddressType extends BaseType
 			}
 		}
 
-		return [$value, $coords, $addressId];
+		$json = null;
+		if ($addressId)
+		{
+			$address = Address::load($addressId);
+			if ($address)
+			{
+				$json = $address->toJson();
+			}
+		}
+		else
+		{
+			$address = self::tryConvertFromJsonToAddress($value);
+			if ($address)
+			{
+				$json = $value;
+				$value = self::getTextAddress($address);
+			}
+		}
+
+		return [
+			$value,
+			$coords,
+			$addressId,
+			$json,
+		];
 	}
 
-	/**
-	 * @param Address $address
-	 * @return string
-	 */
+	private static function tryConvertFromJsonToAddress($value): ?Address
+	{
+		$result = null;
+		try
+		{
+			$result = Address::fromJson(
+				Encoding::convertEncoding($value, LANG_CHARSET, 'UTF-8')
+			);
+		}
+		catch (\Exception | \TypeError $exception) {}
+
+		return $result;
+	}
+
 	private static function formatAddressToString(Address $address): string
 	{
 		return (
-			$address->toString(FormatService::getInstance()->findDefault(LANGUAGE_ID), StringConverter::STRATEGY_TYPE_TEMPLATE_COMMA)
+			self::getTextAddress($address)
 			. '|'
 			. $address->getLatitude()
 			. ';'
 			. $address->getLongitude()
 			. '|'
 			. $address->getId()
+		);
+	}
+
+	private static function getTextAddress(Address $address): string
+	{
+		return $address->toString(
+			FormatService::getInstance()->findDefault(LANGUAGE_ID),
+			StringConverter::STRATEGY_TYPE_TEMPLATE_COMMA
 		);
 	}
 
@@ -357,18 +405,7 @@ class AddressType extends BaseType
 			return null;
 		}
 
-		$address = null;
-
-		try
-		{
-			$convertedValue = Encoding::convertEncoding($value, LANG_CHARSET, 'UTF-8');
-			$address = Address::fromJson($convertedValue);
-		}
-		catch (\Exception | \TypeError $exception)
-		{
-			// the value is not in JSON format, so we can try another format
-		}
-
+		$address = self::tryConvertFromJsonToAddress($value);
 		if (!$address)
 		{
 			$addressId = self::parseValue($value)[2];
@@ -401,8 +438,8 @@ class AddressType extends BaseType
 		[$address, $coords] = self::parseValue($addressString);
 
 		return [
-			'latitude' => $coords[0],
-			'longitude' => $coords[1],
+			'latitude' => $coords[0] ?? null,
+			'longitude' => $coords[1] ?? null,
 			'fieldCollection' => [
 				Address\FieldType::ADDRESS_LINE_2 => $address,
 			],

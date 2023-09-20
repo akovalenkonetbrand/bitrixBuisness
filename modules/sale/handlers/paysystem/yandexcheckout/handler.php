@@ -4,8 +4,10 @@ namespace Sale\Handlers\PaySystem;
 
 use Bitrix\Main\Localization;
 use Bitrix\Main;
+use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\Request;
 use Bitrix\Main\Web\HttpClient;
+use Bitrix\Sale\Cashbox;
 use Bitrix\Sale\Payment;
 use Bitrix\Sale\PaymentCollection;
 use Bitrix\Sale\PaySystem;
@@ -26,7 +28,8 @@ class YandexCheckoutHandler
 	PaySystem\IRefund,
 	PaySystem\IPartialHold,
 	PaySystem\Domain\Verification\IVerificationable,
-	PaySystem\IRecurring
+	PaySystem\IRecurring,
+	PaySystem\Cashbox\ISupportPrintCheck
 {
 	const CMS_NAME = 'api_1c-bitrix';
 
@@ -52,7 +55,6 @@ class YandexCheckoutHandler
 	public const PAYMENT_METHOD_YANDEX_MONEY = 'yoo_money';
 	public const PAYMENT_METHOD_SBERBANK = 'sberbank';
 	public const PAYMENT_METHOD_QIWI = 'qiwi';
-	public const PAYMENT_METHOD_WEBMONEY = 'webmoney';
 	public const PAYMENT_METHOD_CASH = 'cash';
 	public const PAYMENT_METHOD_EMBEDDED = 'embedded';
 	public const PAYMENT_METHOD_TINKOFF_BANK = 'tinkoff_bank';
@@ -67,7 +69,6 @@ class YandexCheckoutHandler
 	public const MODE_SBERBANK_SMS = 'sberbank_sms';
 	public const MODE_SBERBANK_QR = 'sberbank_qr';
 	public const MODE_QIWI = 'qiwi';
-	public const MODE_WEBMONEY = 'webmoney';
 	public const MODE_CASH = 'cash';
 	public const MODE_MOBILE_BALANCE = 'mobile_balance';
 	public const MODE_EMBEDDED = 'embedded';
@@ -93,6 +94,8 @@ class YandexCheckoutHandler
 
 	private const SEND_METHOD_HTTP_POST = "POST";
 	private const SEND_METHOD_HTTP_GET = "GET";
+
+	use PaySystem\Cashbox\CheckTrait;
 
 	/**
 	 * @param Payment $payment
@@ -355,6 +358,21 @@ class YandexCheckoutHandler
 		else
 		{
 			$params = $this->getYandexPaymentQueryParams($payment, $request);
+		}
+
+		if ($this->service->canPrintCheckSelf($payment))
+		{
+			$receiptResult = $this->getReceipt($payment);
+			if (!$receiptResult->isSuccess())
+			{
+				$result->addErrors($receiptResult->getErrors());
+				return $result;
+			}
+
+			$receiptData = $receiptResult->getData();
+			$params['receipt'] = $receiptData['receipt'];
+
+			PaySystem\Logger::addDebugInfo(__CLASS__ . ": receipt = " . self::encode($receiptData['receipt']));
 		}
 
 		$sendResult = $this->send(self::SEND_METHOD_HTTP_POST, $url, $headers, $params);
@@ -620,6 +638,33 @@ class YandexCheckoutHandler
 		}
 
 		return $query;
+	}
+
+	private function getReceipt(Payment $payment): PaySystem\ServiceResult
+	{
+		$result = new PaySystem\ServiceResult();
+
+		$checkQueryResult = $this->buildCheckQuery($payment);
+		if ($checkQueryResult->isSuccess())
+		{
+			$receiptData = $checkQueryResult->getData();
+			if (!empty($receiptData['items']) && !empty($receiptData['customer']))
+			{
+				$result->setData([
+					'receipt' => $receiptData,
+				]);
+			}
+			else
+			{
+				$result->addError(PaySystem\Error::create(Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_ERROR_EMPTY_RECEIPT')));
+			}
+		}
+		else
+		{
+			$result->addErrors($checkQueryResult->getErrors());
+		}
+
+		return $result;
 	}
 
 	/**
@@ -1026,13 +1071,20 @@ class YandexCheckoutHandler
 		if ($yandexSettingsResult->isSuccess())
 		{
 			$yandexSettingsData = $yandexSettingsResult->getData();
-			if ($yandexSettingsData['fiscalization_enabled'])
+
+			if (
+				$yandexSettingsData['fiscalization_enabled']
+				&& $this->isTerminalPayment($payment)
+			)
 			{
 				$result->addError(
 					PaySystem\Error::create(
-						Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_ERROR_FISCALIZATION_ENABLE')
+						Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_ERROR_TERMINAL_FISCALIZATION_ENABLED'),
+						'fiscalization_enabled'
 					)
 				);
+
+				return $result;
 			}
 
 			$paymentMethods = $yandexSettingsData['payment_methods'];
@@ -1042,12 +1094,19 @@ class YandexCheckoutHandler
 				&& !$this->isSetEmbeddedPaymentType()
 			)
 			{
+				$psModeList = static::getHandlerModeList();
+
+				if (!isset($psModeList[$psMode]))
+				{
+					$psModeList[$psMode] = $psMode;
+				}
+
 				$result->addError(
 					PaySystem\Error::create(
 						Localization\Loc::getMessage(
 							'SALE_HPS_YANDEX_CHECKOUT_ERROR_PAYMENT_METHOD_NOT_SUPPORT',
 							[
-								'#PAYMENT_METHOD#' => static::getHandlerModeList()[$psMode]
+								'#PAYMENT_METHOD#' => $psModeList[$psMode],
 							]
 						)
 					)
@@ -1060,6 +1119,25 @@ class YandexCheckoutHandler
 		}
 
 		return $result;
+	}
+
+	private function isTerminalPayment(Payment $payment): bool
+	{
+		$order = $payment->getOrder();
+		if ($order instanceof \Bitrix\Crm\Order\Order)
+		{
+			/** @var \Bitrix\Sale\TradeBindingEntity $entity */
+			foreach ($order->getTradeBindingCollection() as $entity)
+			{
+				$platform = $entity->getTradePlatform();
+				if ($platform && $platform->getCode() === \Bitrix\Crm\Order\TradingPlatform\Terminal::TRADING_PLATFORM_CODE)
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -1296,7 +1374,6 @@ class YandexCheckoutHandler
 			static::MODE_SBERBANK_SMS => Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_SBERBANK_SMS'),
 			static::MODE_SBERBANK_QR => Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_SBERBANK_QR'),
 			static::MODE_QIWI => Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_QIWI'),
-			static::MODE_WEBMONEY => Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_WEBMONEY'),
 			static::MODE_ALFABANK => Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_ALFABANK'),
 			static::MODE_CASH => Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_CASH'),
 			static::MODE_EMBEDDED => Localization\Loc::getMessage('SALE_HPS_YANDEX_CHECKOUT_EMBEDDED'),
@@ -1321,7 +1398,6 @@ class YandexCheckoutHandler
 			static::MODE_SBERBANK_SMS => static::PAYMENT_METHOD_SBERBANK,
 			static::MODE_SBERBANK_QR => static::PAYMENT_METHOD_SBERBANK,
 			static::MODE_QIWI => static::PAYMENT_METHOD_QIWI,
-			static::MODE_WEBMONEY => static::PAYMENT_METHOD_WEBMONEY,
 			static::MODE_CASH => static::PAYMENT_METHOD_CASH,
 			static::MODE_EMBEDDED => static::PAYMENT_METHOD_EMBEDDED,
 			static::MODE_TINKOFF_BANK => static::PAYMENT_METHOD_TINKOFF_BANK,
@@ -1645,5 +1721,10 @@ class YandexCheckoutHandler
 	private static function generateQrCode(string $data): ?string
 	{
 		return (new PaySystem\BarcodeGenerator())->generate($data);
+	}
+
+	public static function getCashboxClass(): string
+	{
+		return '\\'.Cashbox\CashboxYooKassa::class;
 	}
 }

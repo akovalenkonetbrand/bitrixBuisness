@@ -18,8 +18,8 @@ Loc::loadMessages(__FILE__);
  */
 abstract class BaseFilter extends Base
 {
-	const FIELD_FOR_PRESET_ALL = 'SENDER_SELECT_ALL';
-	const FIELD_PRESET_ID = 'BX_PRESET_ID';
+	public const FIELD_FOR_PRESET_ALL = 'SENDER_SELECT_ALL';
+	public const FIELD_PRESET_ID = 'BX_PRESET_ID';
 
 	/** @var string	$filterSettingsUri Filter settings uri. */
 	protected $filterSettingsUri = '';
@@ -70,7 +70,6 @@ abstract class BaseFilter extends Base
 	private function buildUi($filterId, $currentPresetId, $presets, $filter)
 	{
 		ob_start();
-		/** @var \CAllMain $GLOBALS['APPLICATION'] Application. */
 		$GLOBALS['APPLICATION']->includeComponent(
 			"bitrix:main.ui.filter",
 			"",
